@@ -17,12 +17,12 @@
 # %commit and %os_git_vars are intended to be set by tito custom builders provided
 # in the .tito/lib directory. The values in this spec file will not be kept up to date.
 %{!?commit:
-%global commit 5638fa9de9416436a92a7934e27f7b1835a2ec15
+%global commit 08769b23276de44cc072265081fcb8b94e9829d4
 }
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
 # os_git_vars needed to run hack scripts during rpm builds
 %{!?os_git_vars:
-%global os_git_vars OS_GIT_MINOR=11+ OS_GIT_MAJOR=3 OS_GIT_VERSION=v3.11.152 OS_GIT_TREE_STATE=clean OS_BUILD_LDFLAGS_DEFAULT_IMAGE_STREAMS=rhel7 KUBE_GIT_VERSION=v1.11.0+d4cacc0 OS_GIT_PATCH=152 KUBE_GIT_COMMIT=d4cacc0 KUBE_GIT_MINOR=11+ OS_GIT_COMMIT=179a8c99e1 KUBE_GIT_MAJOR=1 OS_IMAGE_PREFIX=registry.redhat.io/openshift3/ose ETCD_GIT_VERSION=v3.2.16-0-g121edf0 ETCD_GIT_COMMIT=121edf0
+%global os_git_vars OS_GIT_MINOR=11+ OS_GIT_MAJOR=3 OS_GIT_VERSION=v3.11.153 OS_GIT_TREE_STATE=clean OS_BUILD_LDFLAGS_DEFAULT_IMAGE_STREAMS=rhel7 KUBE_GIT_VERSION=v1.11.0+d4cacc0 OS_GIT_PATCH=153 KUBE_GIT_COMMIT=d4cacc0 KUBE_GIT_MINOR=11+ OS_GIT_COMMIT=89da8bb5d6 KUBE_GIT_MAJOR=1 OS_IMAGE_PREFIX=registry.redhat.io/openshift3/ose ETCD_GIT_VERSION=v3.2.16-0-g121edf0 ETCD_GIT_COMMIT=121edf0
 }
 
 %if 0%{?skip_build}
@@ -64,7 +64,7 @@
 Name:           atomic-openshift
 # Version is not kept up to date and is intended to be set by tito custom
 # builders provided in the .tito/lib directory of this project
-Version:        3.11.153
+Version:        3.11.154
 Release:        1%{?dist}
 Summary:        Open Source Container Management by Red Hat
 License:        ASL 2.0
@@ -488,6 +488,28 @@ if [ "$1" -eq 0 ] ; then
 fi
 
 %changelog
+* Thu Oct 31 2019 AOS Automation Release Team <aos-team-art@redhat.com> 3.11.154-1
+- backport 8c90407 change (jottofar@redhat.com)
+- back out line # change (jottofar@redhat.com)
+- extend timeout plus hack (jottofar@redhat.com)
+- Fix ignoring non-server records when server threshold is exceeded in OCP 3.11
+  (travi@redhat.com)
+- fix merge conflict (jottofar@redhat.com)
+- UPSTREAM: 83911: Fix DeltaFIFO Replace method to prevent SharedIndexInformers
+  from missing notifications (lukasz.szaszkiewicz@gmail.com)
+- gofmt (jottofar@redhat.com)
+- required changes to get successful testing (jottofar@redhat.com)
+- UPSTREAM: 73437: Update gophercloud library (hekumar@redhat.com)
+- bump (github.com/gophercloud/gophercloud) (hekumar@redhat.com)
+- UPSTREAM: 83261: limit yaml/json decode size (jottofar@redhat.com)
+- bump(yaml): glide (jottofar@redhat.com)
+- update vendored yaml parser to later version (jottofar@redhat.com)
+- Bug 1753501: UPSTREAM: 82503 (somalley@redhat.com)
+- Bug 1723400: fix haproxy reload crash when processing ECDSA keys
+  (ironcladlou@gmail.com)
+- Bug 1748814: Remove 'option tcplog' from passthrough backend in template
+  router (apaladug@apaladug.bos.csb)
+
 * Thu Oct 10 2019 AOS Automation Release Team <aos-team-art@redhat.com> 3.11.153-1
 - Add a NetworkPolicy cache unit test (danw@redhat.com)
 - Improve NetworkPolicy cache (danw@redhat.com)
