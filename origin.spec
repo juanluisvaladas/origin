@@ -17,12 +17,12 @@
 # %commit and %os_git_vars are intended to be set by tito custom builders provided
 # in the .tito/lib directory. The values in this spec file will not be kept up to date.
 %{!?commit:
-%global commit a3f23e5cf45a59da67edb8b8bc7e389b01b8c87c
+%global commit 5e04efb615522015d7f47cd2a0959d3da542699d
 }
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
 # os_git_vars needed to run hack scripts during rpm builds
 %{!?os_git_vars:
-%global os_git_vars OS_GIT_MINOR=11+ OS_GIT_MAJOR=3 OS_GIT_VERSION=v3.11.169 OS_GIT_TREE_STATE=clean OS_BUILD_LDFLAGS_DEFAULT_IMAGE_STREAMS=rhel7 KUBE_GIT_VERSION=v1.11.0+d4cacc0 OS_GIT_PATCH=169 KUBE_GIT_COMMIT=d4cacc0 KUBE_GIT_MINOR=11+ OS_GIT_COMMIT=8b20db1fbc KUBE_GIT_MAJOR=1 OS_IMAGE_PREFIX=registry.redhat.io/openshift3/ose ETCD_GIT_VERSION=v3.2.16-0-g121edf0 ETCD_GIT_COMMIT=121edf0
+%global os_git_vars OS_GIT_MINOR=11+ OS_GIT_MAJOR=3 OS_GIT_VERSION=v3.11.170 OS_GIT_TREE_STATE=clean OS_BUILD_LDFLAGS_DEFAULT_IMAGE_STREAMS=rhel7 KUBE_GIT_VERSION=v1.11.0+d4cacc0 OS_GIT_PATCH=170 KUBE_GIT_COMMIT=d4cacc0 KUBE_GIT_MINOR=11+ OS_GIT_COMMIT=0823fd8630 KUBE_GIT_MAJOR=1 OS_IMAGE_PREFIX=registry.redhat.io/openshift3/ose ETCD_GIT_VERSION=v3.2.16-0-g121edf0 ETCD_GIT_COMMIT=121edf0
 }
 
 %if 0%{?skip_build}
@@ -64,7 +64,7 @@
 Name:           atomic-openshift
 # Version is not kept up to date and is intended to be set by tito custom
 # builders provided in the .tito/lib directory of this project
-Version:        3.11.170
+Version:        3.11.171
 Release:        1%{?dist}
 Summary:        Open Source Container Management by Red Hat
 License:        ASL 2.0
@@ -488,6 +488,24 @@ if [ "$1" -eq 0 ] ; then
 fi
 
 %changelog
+* Fri Feb 21 2020 AOS Automation Release Team <aos-team-art@redhat.com> 3.11.171-1
+- update origin tests to get the new roles' rules (slaznick@redhat.com)
+- UPSTREAM: 70701: Include read access to controllerrevisions for
+  admin/edit/view roles (slaznick@redhat.com)
+- UPSTREAM: 71067: apiserver: preserve stack trace in handler panic beyond
+  timeout handler (stefan.schimanski@gmail.com)
+- Bug 1793324: specify nodejs version because default is now 12 and 3.11 only
+  has 8 (akram.benaissi@gmail.com)
+- UPSTREAM: 65357: Allow more fields at root of CRD schema if status is enabled
+  (james.munnelly@jetstack.io)
+- UPSTREAM: 24453: Sync the status of static Pods (rphillips@redhat.com)
+- fix projects when watching with selector (jvallejo@redhat.com)
+- Bug 1761930: Fix ClusterLogging curator diagnostic check
+  (jcantril@redhat.com)
+- Bug 1762040: Fix cosmetic template error (ironcladlou@gmail.com)
+- Sanitize user input when erroring on an unknown redirect handler
+  (slaznick@redhat.com)
+
 * Mon Feb 03 2020 AOS Automation Release Team <aos-team-art@redhat.com> 3.11.170-1
 - 
 
