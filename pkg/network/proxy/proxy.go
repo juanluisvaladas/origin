@@ -375,8 +375,7 @@ func (proxy *OsdnProxy) syncEgressDNSProxyFirewall() {
 		utilruntime.HandleError(fmt.Errorf("Could not get EgressNetworkPolicies: %v", err))
 		return
 	}
-
-	go utilwait.Forever(proxy.egressDNS.Sync, 0)
+	go proxy.egressDNS.HandleNameUpdates()
 
 	for {
 		policyUpdates := <-proxy.egressDNS.Updates

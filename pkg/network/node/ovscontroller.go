@@ -488,14 +488,17 @@ func policyNames(policies []networkapi.EgressNetworkPolicy) string {
 }
 
 func (oc *ovsController) UpdateEgressNetworkPolicyRules(policies []networkapi.EgressNetworkPolicy, vnid uint32, namespaces []string, egressDNS *common.EgressDNS) error {
+	glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d", vnid)
 	otx := oc.ovs.NewTransaction()
 	errs := []error{}
 
 	if len(policies) == 0 {
+		glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - policies len = 0", vnid)
 		otx.DeleteFlows("table=101, reg0=%d", vnid)
 	} else if vnid == 0 {
 		errs = append(errs, fmt.Errorf("EgressNetworkPolicy in global network namespace is not allowed (%s); ignoring", policyNames(policies)))
 	} else if len(namespaces) > 1 {
+		glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - namespaces len > 1", vnid)
 		// Rationale: In our current implementation, multiple namespaces share their network by using the same VNID.
 		// Even though Egress network policy is defined per namespace, its implementation is based on VNIDs.
 		// So in case of shared network namespaces, egress policy of one namespace will affect all other namespaces that are sharing the network which might not be desirable.
@@ -505,12 +508,13 @@ func (oc *ovsController) UpdateEgressNetworkPolicyRules(policies []networkapi.Eg
 	} else if len(policies) > 1 {
 		// Rationale: If we have allowed more than one policy, we could end up with different network restrictions depending
 		// on the order of policies that were processed and also it doesn't give more expressive power than a single policy.
+		glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - policies len > 1", vnid)
 		errs = append(errs, fmt.Errorf("multiple EgressNetworkPolicies in same network namespace (%s) is not allowed; dropping all traffic", policyNames(policies)))
 		otx.DeleteFlows("table=101, reg0=%d", vnid)
 		otx.AddFlow("table=101, reg0=%d, priority=1, actions=drop", vnid)
 	} else /* vnid != 0 && len(policies) == 1 */ {
 		otx.DeleteFlows("table=101, reg0=%d", vnid)
-
+		glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - updating flows with %+v", vnid, policies[0])
 		for i, rule := range policies[0].Spec.Egress {
 			priority := len(policies[0].Spec.Egress) - i
 
@@ -526,6 +530,7 @@ func (oc *ovsController) UpdateEgressNetworkPolicyRules(policies []networkapi.Eg
 				selectors = append(selectors, rule.To.CIDRSelector)
 			} else if len(rule.To.DNSName) > 0 {
 				ips := egressDNS.GetIPs(rule.To.DNSName)
+				glog.V(2).Infof("egressDNS.GetIPs(%s) returned %v", rule.To.DNSName, ips)
 				for _, ip := range ips {
 					selectors = append(selectors, ip.String())
 				}
@@ -542,14 +547,18 @@ func (oc *ovsController) UpdateEgressNetworkPolicyRules(policies []networkapi.Eg
 					dst = fmt.Sprintf(", nw_dst=%s", selector)
 				}
 
+				glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - adding to transaction: table=101, reg0=%d, priority=%d, ip%s, actions=%s", vnid, vnid, priority, dst, action)
 				otx.AddFlow("table=101, reg0=%d, priority=%d, ip%s, actions=%s", vnid, priority, dst, action)
 			}
 		}
 	}
 
+	glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - otx commit", vnid)
 	if txErr := otx.Commit(); txErr != nil {
+		glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - otx commit fail, %v", vnid, txErr)
 		errs = append(errs, txErr)
 	}
+	glog.V(2).Infof("UpdateEgressNetworkPolicyRules called for vnid: %d - otx commit finished no error", vnid)
 
 	return kerrors.NewAggregate(errs)
 }

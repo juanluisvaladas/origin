@@ -6,10 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/miekg/dns"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -18,24 +20,27 @@ const (
 )
 
 type dnsValue struct {
+	// Domain name to be queried to the DNS server.
+	name string
 	// All IPv4 addresses for a given domain name
 	ips []net.IP
 	// Time-to-live value from non-authoritative/cached name server for the domain
 	ttl time.Duration
-	// Holds (last dns lookup time + ttl), tells when to refresh IPs next time
-	nextQueryTime time.Time
+	// Channel to notify the goroutine to exit
+	exit chan struct{}
 }
 
 type DNS struct {
 	// Protects dnsMap operations
 	lock sync.Mutex
 	// Holds dns name and its corresponding information
-	dnsMap map[string]dnsValue
-
+	dnsMap map[string]*dnsValue
 	// DNS resolvers
 	nameservers []string
 	// DNS port
 	port string
+	// Channel to notify the egress DNS component about changes in the ip address
+	Updates chan string
 }
 
 func NewDNS(resolverConfigFile string) (*DNS, error) {
@@ -45,17 +50,11 @@ func NewDNS(resolverConfigFile string) (*DNS, error) {
 	}
 
 	return &DNS{
-		dnsMap:      map[string]dnsValue{},
+		dnsMap:      map[string]*dnsValue{},
 		nameservers: filterIPv4Servers(config.Servers),
 		port:        config.Port,
+		Updates:     make(chan string, 1),
 	}, nil
-}
-
-func (d *DNS) Size() int {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	return len(d.dnsMap)
 }
 
 func (d *DNS) Get(dns string) dnsValue {
@@ -67,62 +66,84 @@ func (d *DNS) Get(dns string) dnsValue {
 		data.ips = make([]net.IP, len(res.ips))
 		copy(data.ips, res.ips)
 		data.ttl = res.ttl
-		data.nextQueryTime = res.nextQueryTime
 	}
 	return data
 }
 
 func (d *DNS) Add(dns string) error {
+	glog.V(2).Infof("DNS.Add(%s)", dns)
+	err := utilvalidation.IsDNS1123Subdomain(dns)
+	if err != nil {
+		return fmt.Errorf("Ignoring rule for dnsName %s . Is not a valid domain name: %v", dns, err)
+	}
+
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
-	d.dnsMap[dns] = dnsValue{}
-	_, err := d.updateOne(dns)
-	if err != nil {
-		delete(d.dnsMap, dns)
+	d.dnsMap[dns] = &dnsValue{
+		name: dns,
+		ips:  nil,
+		ttl:  defaultTTL,
+		// Make this unbuffered to avoid blocking DNS.delete.
+		// We delete it from the map immediately after so there is no risk of
+		// writing to it again.
+		exit: make(chan struct{}, 1),
 	}
-	return err
+	go d.sync(d.dnsMap[dns])
+	return nil
+}
+
+//TODO add stop channel for delete
+func (d *DNS) sync(dns *dnsValue) {
+	// Don't wait for the first execution
+	ttlTimer := time.Nanosecond
+	glog.V(2).Infof("DNS.sync(%s) - Starting sync", dns.name)
+	for {
+		glog.V(2).Infof("DNS.sync(%s) - waiting TTL: %s", dns.name, ttlTimer)
+		select {
+		case <-time.After(ttlTimer):
+			glog.V(2).Infof("DNS.sync(%s) - Querying", dns.name)
+			ips, ttl, err := d.getIPsAndMinTTL(dns.name)
+			if err != nil {
+				// If the first query failed for whatever reason set the time
+				// to a second so that we don't do a DoS to the DNS server
+				if ttlTimer == time.Nanosecond {
+					ttlTimer = time.Second
+				}
+				glog.Warningf("Error querying %s, retrying again in %s", dns.name, ttlTimer)
+			}
+			glog.V(2).Infof("DNS.sync(%s) - ips: %v  TTL: %s", dns.name, ips, ttl)
+
+			if !ipsEqual(dns.ips, ips) {
+				glog.V(2).Infof("DNS.sync(%s) - Updating IPs, %v", dns.name, ips)
+				timeBeforeUpdate := time.Now()
+				dns.ips = ips
+				d.Updates <- dns.name
+				// Updating the channel is a blocking operation. Normally doesn't
+				// take more than a fraction of milliseconds but compensate it anyway.
+				ttlTimer = time.Now().Add(ttl).Sub(timeBeforeUpdate)
+				glog.V(2).Infof("DNS.sync(%s) - Updated IPs", dns.name)
+				continue
+			}
+			ttlTimer = ttl
+
+		case <-dns.exit:
+			break
+		}
+	}
+	glog.V(2).Infof("Stopped sync for %s", dns.name)
 }
 
 func (d *DNS) Delete(dns string) {
+	glog.V(2).Infof("DNS.Delete(%s)", dns)
 	d.lock.Lock()
 	defer d.lock.Unlock()
+	d.dnsMap[dns].exit <- struct{}{}
 	delete(d.dnsMap, dns)
 }
 
-func (d *DNS) Update(dnsName string) (bool, error) {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	return d.updateOne(dnsName)
-}
-
-func (d *DNS) updateOne(dns string) (bool, error) {
-	res, ok := d.dnsMap[dns]
-	if !ok {
-		// Should not happen, all operations on dnsMap are synchronized by d.lock
-		return false, fmt.Errorf("DNS value not found in dnsMap for domain: %q", dns)
-	}
-
-	ips, ttl, err := d.getIPsAndMinTTL(dns)
-	if err != nil {
-		res.nextQueryTime = time.Now().Add(defaultTTL)
-		d.dnsMap[dns] = res
-		return false, err
-	}
-
-	changed := false
-	if !ipsEqual(res.ips, ips) {
-		changed = true
-	}
-	res.ips = ips
-	res.ttl = ttl
-	res.nextQueryTime = time.Now().Add(res.ttl)
-	d.dnsMap[dns] = res
-	return changed, nil
-}
-
 func (d *DNS) getIPsAndMinTTL(domain string) ([]net.IP, time.Duration, error) {
+	glog.V(2).Infof("DNS.getIPsAndMinTTL(%s)", domain)
 	ips := []net.IP{}
 	ttlSet := false
 	var ttlSeconds uint32
@@ -137,11 +158,14 @@ func (d *DNS) getIPsAndMinTTL(domain string) ([]net.IP, time.Duration, error) {
 		}
 		c := new(dns.Client)
 		c.Timeout = 5 * time.Second
+		glog.V(2).Infof("DNS.getIPsAndMinTTL(%s) - dialing server", domain)
 		in, _, err := c.Exchange(msg, dialServer)
 		if err != nil {
+			glog.V(2).Infof("DNS.getIPsAndMinTTL(%s) - error dialing server", domain)
 			return nil, defaultTTL, err
 		}
 		if in != nil && in.Rcode != dns.RcodeSuccess {
+			glog.V(2).Infof("DNS.getIPsAndMinTTL(%s) - server returned an invalid answer", domain)
 			return nil, defaultTTL, fmt.Errorf("failed to get a valid answer: %v", in)
 		}
 
@@ -161,6 +185,7 @@ func (d *DNS) getIPsAndMinTTL(domain string) ([]net.IP, time.Duration, error) {
 	}
 
 	if !ttlSet || (len(ips) == 0) {
+		glog.V(2).Infof("DNS.getIPsAndMinTTL(%s) - Server found no ipv4 records", domain)
 		return nil, defaultTTL, fmt.Errorf("IPv4 addr not found for domain: %q, nameservers: %v", domain, d.nameservers)
 	}
 
@@ -174,25 +199,6 @@ func (d *DNS) getIPsAndMinTTL(domain string) ([]net.IP, time.Duration, error) {
 	}
 
 	return removeDuplicateIPs(ips), ttl, nil
-}
-
-func (d *DNS) GetNextQueryTime() (time.Time, string, bool) {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	timeSet := false
-	var minTime time.Time
-	var dns string
-
-	for dnsName, res := range d.dnsMap {
-		if (timeSet == false) || res.nextQueryTime.Before(minTime) {
-			timeSet = true
-			minTime = res.nextQueryTime
-			dns = dnsName
-		}
-	}
-
-	return minTime, dns, timeSet
 }
 
 func ipsEqual(oldips, newips []net.IP) bool {
@@ -234,6 +240,7 @@ func filterIPv4Servers(servers []string) []string {
 }
 
 func removeDuplicateIPs(ips []net.IP) []net.IP {
+	glog.V(2).Infof("DNS.removeDuplicateIPs(%v)", ips)
 	ipSet := sets.NewString()
 	for _, ip := range ips {
 		ipSet.Insert(ip.String())

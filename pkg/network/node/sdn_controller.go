@@ -201,11 +201,13 @@ func (plugin *OsdnNode) setup(localSubnetCIDR, localSubnetGateway string) error 
 }
 
 func (plugin *OsdnNode) updateEgressNetworkPolicyRules(vnid uint32) {
+	glog.V(2).Infof("updateEgressNetworkPolicyRules called for vnid: %d", vnid)
 	policies := plugin.egressPolicies[vnid]
 	namespaces := plugin.policy.GetNamespaces(vnid)
 	if err := plugin.oc.UpdateEgressNetworkPolicyRules(policies, vnid, namespaces, plugin.egressDNS); err != nil {
 		utilruntime.HandleError(fmt.Errorf("Error updating OVS flows for EgressNetworkPolicy: %v", err))
 	}
+	glog.V(2).Infof("updateEgressNetworkPolicyRules finished for vnid: %d", vnid)
 }
 
 func (plugin *OsdnNode) AddServiceRules(service *kapi.Service, netID uint32) {

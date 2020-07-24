@@ -3,7 +3,6 @@ package common
 import (
 	"net"
 	"sync"
-	"time"
 
 	"github.com/golang/glog"
 	networkapi "github.com/openshift/api/network/v1"
@@ -52,8 +51,11 @@ func NewEgressDNS() (*EgressDNS, error) {
 }
 
 func (e *EgressDNS) Add(policy networkapi.EgressNetworkPolicy) {
+	glog.V(2).Infof("EgressDNS.Add: acquiring lock for: %s/%s", policy.Namespace, policy.Name)
 	e.lock.Lock()
+	glog.V(2).Infof("EgressDNS.Add: acquired lock for: %s/%s", policy.Namespace, policy.Name)
 	defer e.lock.Unlock()
+	glog.V(2).Infof("EgressDNS.Add: released lock for: %s/%s", policy.Namespace, policy.Name)
 
 	for _, rule := range policy.Spec.Egress {
 		if len(rule.To.DNSName) > 0 {
@@ -73,8 +75,11 @@ func (e *EgressDNS) Add(policy networkapi.EgressNetworkPolicy) {
 }
 
 func (e *EgressDNS) Delete(policy networkapi.EgressNetworkPolicy) {
+	glog.V(2).Infof("EgressDNS.Delete: acquiring lock for: %s/%s", policy.Namespace, policy.Name)
 	e.lock.Lock()
+	glog.V(2).Infof("EgressDNS.Delete: acquired lock for: %s/%s", policy.Namespace, policy.Name)
 	defer e.lock.Unlock()
+	defer glog.V(2).Infof("EgressDNS.Delete: released lock for: %s/%s", policy.Namespace, policy.Name)
 	//delete the entry from the dnsNames to UIDs map for each rule in the policy
 	//if the slice is empty at this point, delete the entry from the dns object too
 	//also remove the policy entry from the namespaces map.
@@ -97,67 +102,43 @@ func (e *EgressDNS) Delete(policy networkapi.EgressNetworkPolicy) {
 	}
 }
 
-func (e *EgressDNS) Update(dns string) (bool, error) {
-	e.lock.Lock()
-	defer e.lock.Unlock()
-
-	return e.dns.Update(dns)
-}
-
-func (e *EgressDNS) Sync() {
-	var duration time.Duration
-	for {
-		tm, dnsName, updates, ok := e.GetNextQueryTime()
-		if !ok {
-			duration = 30 * time.Minute
-		} else {
-			now := time.Now()
-			if tm.After(now) {
-				// Item needs to wait for this duration before it can be processed
-				duration = tm.Sub(now)
-			} else {
-				changed, err := e.Update(dnsName)
-				if err != nil {
-					utilruntime.HandleError(err)
-				}
-
-				if changed {
-					e.Updates <- updates
-				}
-				continue
-			}
-		}
-
-		// Wait for the given duration or till something got added
-		select {
-		case <-e.added:
-		case <-time.After(duration):
-		}
+func (e *EgressDNS) HandleNameUpdates() {
+	glog.V(2).Info("HandleNameUpdates Called")
+	for update := range e.dns.Updates {
+		glog.V(2).Infof("HandleNameUpdates got update for: %s", update)
+		e.updateName(update)
+		glog.V(2).Infof("HandleNameUpdates got updated: %s", update)
 	}
 }
 
-func (e *EgressDNS) GetNextQueryTime() (time.Time, string, []EgressDNSUpdate, bool) {
+func (e EgressDNS) updateName(dnsName string) {
+	glog.V(2).Info("updateName: acquiring lock for %s", dnsName)
 	e.lock.Lock()
+	glog.V(2).Infof("updateName: acquired lock for: %s", dnsName)
 	defer e.lock.Unlock()
+	defer glog.V(2).Info("updateName: released lock for %s", dnsName)
 	policyUpdates := make([]EgressDNSUpdate, 0)
-	tm, dnsName, timeSet := e.dns.GetNextQueryTime()
-	if !timeSet {
-		return tm, dnsName, nil, timeSet
-	}
 
 	if uids, exists := e.dnsNamesToPolicies[dnsName]; exists {
 		for uid := range uids {
+			glog.V(2).Infof("updateName: Adding uid %v because %s", uid, dnsName)
 			policyUpdates = append(policyUpdates, EgressDNSUpdate{ktypes.UID(uid), e.namespaces[ktypes.UID(uid)]})
 		}
 	} else {
-		glog.V(5).Infof("Didn't find any entry for dns name: %s in the dns map.", dnsName)
+		glog.V(2).Infof("updateName: idn't find any entry for dns name: %s in the dns map.", dnsName)
 	}
-	return tm, dnsName, policyUpdates, timeSet
+
+	glog.V(2).Infof("updateName: writing to channel for %s", dnsName)
+	e.Updates <- policyUpdates
+	glog.V(2).Infof("updateName: channel updated for %s", dnsName)
 }
 
 func (e *EgressDNS) GetIPs(dnsName string) []net.IP {
+	glog.V(2).Infof("GetIPs acquiring lock for %s", dnsName)
 	e.lock.Lock()
+	glog.V(2).Infof("GetIPs acquired lock for %s", dnsName)
 	defer e.lock.Unlock()
+	defer glog.V(2).Infof("GetIPs released lock for %s", dnsName)
 	return e.dns.Get(dnsName).ips
 
 }

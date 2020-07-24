@@ -142,13 +142,13 @@ func New(execer exec.Interface, bridge string, minVersion string) (Interface, er
 }
 
 func (ovsif *ovsExec) execWithStdin(cmd string, stdinArgs []string, args ...string) (string, error) {
-	logLevel := glog.Level(4)
+	logLevel := glog.Level(2)
 	switch cmd {
 	case OVS_OFCTL:
 		if args[0] == "dump-flows" {
-			logLevel = glog.Level(5)
+			logLevel = glog.Level(4)
 		}
-		args = append([]string{"-O", "OpenFlow13"}, args...)
+		args = append([]string{"-O", "OpenFlow13", "--timeout=10"}, args...)
 	case OVS_VSCTL:
 		args = append([]string{"--timeout=30"}, args...)
 	}
